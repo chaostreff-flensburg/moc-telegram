@@ -39,7 +39,7 @@ func moc2telegram(config *config.Config) {
 
 	log.Info("Telegram Running!")
 
-	go telegramClient.SendLoop(0.1 * time.Second)
+	go telegramClient.SendLoop(100 * time.Millisecond)
 
 	apiClient := api.NewClient(config.Endpoint)
 	apiClient.Loop(20 * time.Second)
