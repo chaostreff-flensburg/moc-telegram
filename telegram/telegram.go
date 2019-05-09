@@ -68,27 +68,21 @@ func (t *Telegram) Loop() {
 		chatID := update.Message.Chat.ID
 		text := t.Text.Hello
 		keyboard := tmodels.KeyboardTypeNone
-		//		msg := tgbotapi.NewMessage(chatID, t.Text.Hello)
 
 		switch update.Message.Text {
 		case t.Text.Subscribe:
 			keyboard = tmodels.KeyboardTypeUnsubscribe
 			text = t.Text.Subscribed
-			//			msg.ReplyMarkup = unsubscribeKeyboard
-			//			msg.Text = t.Text.Subscribed
 
 			key := fmt.Sprintf("subscriber.%v", chatID)
 			t.DB.Put([]byte(key), []byte(fmt.Sprintf("%v", chatID)), nil)
 		case t.Text.Unsubscribe:
 			keyboard = tmodels.KeyboardTypeRemove
 			text = t.Text.Unsubscribed
-			//			msg.ReplyMarkup = tgbotapi.NewRemoveKeyboard(true)
-			//			msg.Text = t.Text.Unsubscribed
 
 			t.DB.Delete([]byte(fmt.Sprintf("subscriber.%v", chatID)), nil)
 		default:
 			keyboard = tmodels.KeyboardTypeSubscribe
-			//			msg.ReplyMarkup = subscribeKeyboard
 		}
 
 		msg := tmodels.NewQueueEntry(chatID, text, keyboard)
