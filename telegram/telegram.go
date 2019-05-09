@@ -24,7 +24,7 @@ type Telegram struct {
 	DB      *leveldb.DB
 	Queue   *goque.Queue
 	Limiter *rate.Limiter
-	Log     *logrus.Entry
+	Log     *log.Entry
 }
 
 func NewTelegram(config *config.Config, db *leveldb.DB) *Telegram {
