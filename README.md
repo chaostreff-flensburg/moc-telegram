@@ -34,6 +34,12 @@ services:
       - 80:80
   moc-telegram:
     image: ctfl/moc-telegram
+    volumes:
+      - ./data:/data
     env_file:
       - .env
 ```
+
+## Persistence
+
+Location for subscribers `/data`

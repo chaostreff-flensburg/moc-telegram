@@ -2,12 +2,12 @@ package telegram
 
 import (
 	"fmt"
-	"log"
 	"strconv"
 	"time"
 
 	"github.com/beeker1121/goque"
 	"github.com/go-telegram-bot-api/telegram-bot-api"
+	log "github.com/sirupsen/logrus"
 	"github.com/syndtr/goleveldb/leveldb"
 	"github.com/syndtr/goleveldb/leveldb/util"
 	"golang.org/x/time/rate"
@@ -24,6 +24,7 @@ type Telegram struct {
 	DB      *leveldb.DB
 	Queue   *goque.Queue
 	Limiter *rate.Limiter
+	Log     *log.Entry
 }
 
 func NewTelegram(config *config.Config, db *leveldb.DB) *Telegram {
@@ -32,6 +33,7 @@ func NewTelegram(config *config.Config, db *leveldb.DB) *Telegram {
 		DB:      db,
 		Text:    config.Text,
 		Limiter: rate.NewLimiter(20, 30),
+		Log:     log.WithFields(log.Fields{"component": "telegram"}),
 	}
 }
 
@@ -51,7 +53,7 @@ func (t *Telegram) Connect() {
 
 	t.Bot.Debug = false
 
-	log.Printf("Authorized on account %s", t.Bot.Self.UserName)
+	t.Log.Infof("Authorized on account %s", t.Bot.Self.UserName)
 }
 
 func (t *Telegram) Loop() {
@@ -66,35 +68,55 @@ func (t *Telegram) Loop() {
 		}
 
 		chatID := update.Message.Chat.ID
+		log.WithFields(log.Fields{"chat_id": chatID})
+
+		if update.Message.Chat.IsGroup() {
+			key := fmt.Sprintf("subscriber.%v", chatID)
+
+			if update.Message.LeftChatMember != nil {
+				if update.Message.LeftChatMember.ID == t.Bot.Self.ID {
+					t.Log.Infof("i'am kicked from Chat %d", chatID)
+					t.DB.Delete([]byte(fmt.Sprintf("subscriber.%v", chatID)), nil)
+				}
+			}
+
+			if update.Message.NewChatMembers == nil {
+				continue
+			}
+
+			for _, user := range *update.Message.NewChatMembers {
+				if user.ID == t.Bot.Self.ID {
+					t.Log.Infof("i'am joined Chat %d", chatID)
+					t.DB.Put([]byte(key), []byte(fmt.Sprintf("%v", chatID)), nil)
+				}
+			}
+
+			continue
+		}
+
 		text := t.Text.Hello
 		keyboard := tmodels.KeyboardTypeNone
-		//		msg := tgbotapi.NewMessage(chatID, t.Text.Hello)
 
 		switch update.Message.Text {
 		case t.Text.Subscribe:
 			keyboard = tmodels.KeyboardTypeUnsubscribe
 			text = t.Text.Subscribed
-			//			msg.ReplyMarkup = unsubscribeKeyboard
-			//			msg.Text = t.Text.Subscribed
 
 			key := fmt.Sprintf("subscriber.%v", chatID)
 			t.DB.Put([]byte(key), []byte(fmt.Sprintf("%v", chatID)), nil)
 		case t.Text.Unsubscribe:
 			keyboard = tmodels.KeyboardTypeRemove
 			text = t.Text.Unsubscribed
-			//			msg.ReplyMarkup = tgbotapi.NewRemoveKeyboard(true)
-			//			msg.Text = t.Text.Unsubscribed
 
 			t.DB.Delete([]byte(fmt.Sprintf("subscriber.%v", chatID)), nil)
 		default:
 			keyboard = tmodels.KeyboardTypeSubscribe
-			//			msg.ReplyMarkup = subscribeKeyboard
 		}
 
 		msg := tmodels.NewQueueEntry(chatID, text, keyboard)
 
 		if _, err := t.Queue.EnqueueObject(msg); err != nil {
-			log.Panic(err)
+			t.Log.Panic(err)
 		}
 	}
 }
@@ -104,12 +126,12 @@ func (t *Telegram) SendMessage(chatID int64, message *models.Message) {
 	msg := tmodels.NewQueueEntry(chatID, message.Text, tmodels.KeyboardTypeNone)
 
 	if _, err := t.Queue.EnqueueObject(msg); err != nil {
-		log.Panic(err)
+		t.Log.Panic(err)
 	}
 }
 
 func (t *Telegram) SendAll(message *models.Message) {
-	log.Println("Start sending to all...")
+	t.Log.Info("Start sending to all...")
 
 	iter := t.DB.NewIterator(util.BytesPrefix([]byte("subscriber.")), nil)
 	for iter.Next() {
@@ -120,10 +142,10 @@ func (t *Telegram) SendAll(message *models.Message) {
 	iter.Release()
 	err := iter.Error()
 	if err != nil {
-		log.Println(err)
+		t.Log.Error(err)
 	}
 
-	log.Println("Finish sending to all.")
+	t.Log.Info("Finish sending to all.")
 }
 
 func (t *Telegram) SendLoop(tick time.Duration) {
@@ -148,7 +170,7 @@ func (t *Telegram) SendFromQueue() {
 	var queueEntry tmodels.QueueEntry
 	err = item.ToObject(&queueEntry)
 	if err != nil {
-		log.Println(err)
+		t.Log.Error(err)
 	}
 
 	msg := tgbotapi.NewMessage(queueEntry.ChatID, queueEntry.Text)
@@ -170,6 +192,6 @@ func (t *Telegram) SendFromQueue() {
 	}
 
 	if _, err := t.Bot.Send(msg); err != nil {
-		log.Println(err)
+		t.Log.Error(err)
 	}
 }
